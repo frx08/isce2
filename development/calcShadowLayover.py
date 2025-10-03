@@ -1,18 +1,35 @@
 #!/usr/bin/env python3
-"""Helpers to produce Sentinel-1 shadow/layover masks with ISCE2."""
+"""Helpers to produce radar shadow/layover masks with ISCE2."""
 
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import isceobj
 from isceobj.Planet.Planet import Planet
-from isceobj.Sensor.TOPS.Sentinel1 import Sentinel1
 from zerodop.topozero import createTopozero
 
-# Accepted Topozero interpolation identifiers
 _VALID_DEM_METHODS = {"SINC", "BILINEAR", "BICUBIC", "NEAREST", "AKIMA", "BIQUINTIC"}
+
+
+@dataclass
+class GeometryTask:
+    """Container describing a single geometry computation."""
+
+    label: str
+    tag: str
+    width: int
+    length: int
+    range_pixel_spacing: float
+    prf: float
+    radar_wavelength: float
+    orbit: object
+    sensing_start: object
+    range_first_sample: float
+    look_side: int
+    polarization: Optional[str] = None
 
 
 def _load_dem(dem_path: str):
@@ -23,40 +40,6 @@ def _load_dem(dem_path: str):
     dem_image = isceobj.createDemImage()
     dem_image.load(xml_path)
     return dem_image
-
-
-def _configure_reader(
-    *,
-    safe_paths: Optional[Sequence[str]],
-    annotation_paths: Optional[Sequence[str]],
-    manifest_paths: Optional[Sequence[str]],
-    swath: int,
-    polarization: str,
-    orbit_file: Optional[str],
-    orbit_dir: Optional[str],
-    aux_dir: Optional[str],
-) -> Sentinel1:
-    reader = Sentinel1()
-    reader.configure()
-
-    if annotation_paths:
-        reader.xml = list(annotation_paths)
-    elif safe_paths:
-        reader.safe = list(safe_paths)
-    else:
-        raise ValueError("Provide either SAFE paths or annotation XML paths")
-
-    if manifest_paths:
-        reader.manifest = list(manifest_paths)
-
-    reader.swathNumber = swath
-    reader.polarization = polarization.lower()
-    reader.orbitFile = orbit_file
-    reader.orbitDir = orbit_dir
-    reader.auxDir = aux_dir
-
-    reader.parse()
-    return reader
 
 
 def _burst_slice(
@@ -77,44 +60,37 @@ def _burst_slice(
         yield offset, burst
 
 
-def _ensure_outdir(outdir: str, swath: int) -> str:
-    swath_dir = os.path.join(outdir, f"IW{swath}")
-    os.makedirs(swath_dir, exist_ok=True)
-    return swath_dir
+def _ensure_dir(path: str) -> str:
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
-def _topo_output_paths(swath_dir: str, burst_id: int) -> Dict[str, str]:
-    tag = f"{burst_id:02d}"
-    return {
-        "lat": os.path.join(swath_dir, f"lat_{tag}.rdr"),
-        "lon": os.path.join(swath_dir, f"lon_{tag}.rdr"),
-        "hgt": os.path.join(swath_dir, f"hgt_{tag}.rdr"),
-        "los": os.path.join(swath_dir, f"los_{tag}.rdr"),
-        "inc": os.path.join(swath_dir, f"incLocal_{tag}.rdr"),
-        "mask": os.path.join(swath_dir, f"shadowMask_{tag}.rdr"),
-    }
-
-
-def _run_topo_for_burst(
-    burst,
-    burst_id: int,
+def _run_topo_task(
+    task: GeometryTask,
     dem_image,
     planet,
-    swath_dir: str,
+    outdir: str,
     dem_interp: str,
 ) -> Tuple[Tuple[float, float, float, float], str]:
-    outputs = _topo_output_paths(swath_dir, burst_id)
+    outputs = {
+        "lat": os.path.join(outdir, f"lat_{task.tag}.rdr"),
+        "lon": os.path.join(outdir, f"lon_{task.tag}.rdr"),
+        "hgt": os.path.join(outdir, f"hgt_{task.tag}.rdr"),
+        "los": os.path.join(outdir, f"los_{task.tag}.rdr"),
+        "inc": os.path.join(outdir, f"incLocal_{task.tag}.rdr"),
+        "mask": os.path.join(outdir, f"shadowMask_{task.tag}.rdr"),
+    }
 
     topo = createTopozero()
-    topo.slantRangePixelSpacing = burst.rangePixelSize
-    topo.prf = 1.0 / burst.azimuthTimeInterval
-    topo.radarWavelength = burst.radarWavelength
-    topo.orbit = burst.orbit
-    topo.width = burst.numberOfSamples
-    topo.length = burst.numberOfLines
-    topo.lookSide = -1  # Sentinel-1 is right-looking
-    topo.sensingStart = burst.sensingStart
-    topo.rangeFirstSample = burst.startingRange
+    topo.slantRangePixelSpacing = task.range_pixel_spacing
+    topo.prf = task.prf
+    topo.radarWavelength = task.radar_wavelength
+    topo.orbit = task.orbit
+    topo.width = task.width
+    topo.length = task.length
+    topo.lookSide = task.look_side
+    topo.sensingStart = task.sensing_start
+    topo.rangeFirstSample = task.range_first_sample
     topo.numberRangeLooks = 1
     topo.numberAzimuthLooks = 1
     topo.demInterpolationMethod = dem_interp
@@ -139,74 +115,110 @@ def _run_topo_for_burst(
     return bbox, outputs["mask"]
 
 
+def _prepare_geometry_tasks(
+    reader,
+    burst_range: Optional[Tuple[int, int]],
+) -> Tuple[List[GeometryTask], Dict[str, Optional[str]]]:
+    tasks: List[GeometryTask] = []
+    meta: Dict[str, Optional[str]] = {
+        "sensor": getattr(reader, "family", None),
+        "polarization": None,
+    }
+
+    if hasattr(reader, "product") and getattr(reader.product, "bursts", None):
+        bursts = reader.product.bursts
+        burst_iter = _burst_slice(bursts, burst_range)
+        for burst_id, burst in burst_iter:
+            pol = getattr(burst, "polarization", None)
+            if pol and not meta["polarization"]:
+                meta["polarization"] = pol
+
+            tasks.append(
+                GeometryTask(
+                    label=f"burst_{burst_id:02d}",
+                    tag=f"{burst_id:02d}",
+                    width=burst.numberOfSamples,
+                    length=burst.numberOfLines,
+                    range_pixel_spacing=burst.rangePixelSize,
+                    prf=1.0 / burst.azimuthTimeInterval,
+                    radar_wavelength=burst.radarWavelength,
+                    orbit=burst.orbit,
+                    sensing_start=burst.sensingStart,
+                    range_first_sample=burst.startingRange,
+                    look_side=-1,
+                    polarization=pol,
+                )
+            )
+    elif hasattr(reader, "frame") and reader.frame is not None:
+        frame = reader.frame
+        instrument = frame.getInstrument()
+        platform = instrument.getPlatform()
+        pol = None
+        if hasattr(frame, "getPolarization"):
+            pol = frame.getPolarization()
+        elif hasattr(frame, "polarization"):
+            pol = frame.polarization
+        meta["polarization"] = pol
+
+        tasks.append(
+            GeometryTask(
+                label="frame",
+                tag="frame",
+                width=frame.getNumberOfSamples(),
+                length=frame.getNumberOfLines(),
+                range_pixel_spacing=instrument.getRangePixelSize(),
+                prf=instrument.getPulseRepetitionFrequency(),
+                radar_wavelength=instrument.getRadarWavelength(),
+                orbit=frame.getOrbit(),
+                sensing_start=frame.getSensingStart(),
+                range_first_sample=frame.getStartingRange(),
+                look_side=platform.pointingDirection,
+                polarization=pol,
+            )
+        )
+    else:
+        raise ValueError("Reader does not expose bursts or frame metadata required for geometry generation")
+
+    return tasks, meta
+
+
 def generate_shadow_layover(
     *,
+    reader,
     dem_path: str,
     output_dir: str,
-    swath: int,
-    polarization: str = "vv",
-    safe_paths: Optional[Sequence[str]] = None,
-    annotation_paths: Optional[Sequence[str]] = None,
-    manifest_paths: Optional[Sequence[str]] = None,
-    orbit_file: Optional[str] = None,
-    orbit_dir: Optional[str] = None,
-    aux_dir: Optional[str] = None,
     burst_range: Optional[Tuple[int, int]] = None,
     dem_interp: str = "BIQUINTIC",
 ) -> Dict[str, object]:
-    """Generate shadow/layover masks for a given Sentinel-1 swath.
-
-    Parameters are passed explicitly so the function can be consumed in
-    external environments without relying on command-line parsing.
-
-    Returns
-    -------
-    dict
-        Summary dictionary containing per-burst outputs and overall
-        bounding boxes.
-    """
+    """Generate shadow/layover masks for a parsed sensor reader."""
 
     method = dem_interp.upper()
     if method not in _VALID_DEM_METHODS:
         raise ValueError(f"Unsupported DEM interpolation method: {dem_interp}")
 
-    if swath not in (1, 2, 3):
-        raise ValueError("Swath number must be one of 1, 2, or 3")
-
     dem_image = _load_dem(dem_path)
-    reader = _configure_reader(
-        safe_paths=safe_paths,
-        annotation_paths=annotation_paths,
-        manifest_paths=manifest_paths,
-        swath=swath,
-        polarization=polarization,
-        orbit_file=orbit_file,
-        orbit_dir=orbit_dir,
-        aux_dir=aux_dir,
-    )
+    tasks, meta = _prepare_geometry_tasks(reader, burst_range)
 
-    swath_dir = _ensure_outdir(output_dir, swath)
+    outdir = _ensure_dir(output_dir)
     planet = Planet(pname="Earth")
 
-    burst_iter = _burst_slice(reader.product.bursts, burst_range)
-
     bboxes: List[Tuple[float, float, float, float]] = []
-    burst_results: List[Dict[str, object]] = []
+    unit_results: List[Dict[str, object]] = []
 
-    for burst_id, burst in burst_iter:
-        bbox, mask_path = _run_topo_for_burst(
-            burst=burst,
-            burst_id=burst_id,
-            dem_image=dem_image,
-            planet=planet,
-            swath_dir=swath_dir,
-            dem_interp=method,
-        )
+    for task in tasks:
+        bbox, mask_path = _run_topo_task(task, dem_image, planet, outdir, method)
         bboxes.append(bbox)
-        burst_results.append({"burst_id": burst_id, "mask_path": mask_path, "bbox": bbox})
+        unit_results.append(
+            {
+                "label": task.label,
+                "mask_path": mask_path,
+                "bbox": bbox,
+                "polarization": task.polarization,
+            }
+        )
 
-    if not burst_results:
-        raise RuntimeError("No bursts processed; check burst range or input coverage")
+    if not unit_results:
+        raise RuntimeError("No valid geometry tasks were generated from the sensor reader")
 
     overall_bbox = (
         min(b[0] for b in bboxes),
@@ -216,9 +228,11 @@ def generate_shadow_layover(
     )
 
     return {
-        "swath": swath,
-        "polarization": polarization,
-        "output_directory": swath_dir,
-        "bursts": burst_results,
+        "output_directory": outdir,
+        "units": unit_results,
         "overall_bbox": overall_bbox,
+        "metadata": meta,
     }
+
+
+__all__ = ["generate_shadow_layover"]
