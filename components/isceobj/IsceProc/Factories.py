@@ -85,7 +85,7 @@ def createEstimateHeights(other, do_estimateheights, sensor):
 def createFormSLC(other, do_formslc, sensor):
     if not do_formslc:
         return None
-    if sensor.lower() in ["terrasarx","cosmo_skymed_slc","radarsat2",'tandemx', 'kompsat5','risat1','sentinel1a']:
+    if sensor.lower() in ["terrasarx","cosmo_skymed_slc","cosmo_skymed_2gen_slc","radarsat2",'tandemx', 'kompsat5','risat1','sentinel1a']:
         from .runFormSLCTSX import runFormSLC
     elif "uavsar" in sensor.lower():
         from .runFormSLCisce import runFormSLC

@@ -15,6 +15,7 @@ set(installfiles
     CEOS.py
     COSMO_SkyMed.py
     COSMO_SkyMed_SLC.py
+    COSMO_SkyMed_2gen_SLC.py
     ERS.py
     ERS_EnviSAT.py
     ERS_EnviSAT_SLC.py
@@ -52,6 +53,12 @@ if(HDF5_FOUND)
     target_include_directories(csk PUBLIC include)
     target_link_libraries(csk PUBLIC HDF5::HDF5)
     list(APPEND installfiles csk)
+    Python_add_library(csg MODULE
+        src/extract_csg/extract_csg_slc.c
+        )
+    target_include_directories(csg PUBLIC include)
+    target_link_libraries(csg PUBLIC HDF5::HDF5)
+    list(APPEND installfiles csg)
 endif()
 
 Python_add_library(alos MODULE

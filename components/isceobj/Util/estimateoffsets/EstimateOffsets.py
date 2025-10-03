@@ -43,7 +43,7 @@ from isceobj.Util.mathModule import is_power2
 import logging
 logger = logging.getLogger('isce.Util.estimateoffsets')
 
-SensorSearchWindowSize = {'ALOS':20, 'COSMO_SKYMED':20, 'COSMO_SKYMED_SLC':40,
+SensorSearchWindowSize = {'ALOS':20, 'COSMO_SKYMED':20, 'COSMO_SKYMED_SLC':40, 'COSMO_SKYMED_2GEN_SLC':40,
                           'ENVISAT':20, 'ERS':40, 'JERS':20, 'RADARSAT1':20,
                           'RADARSAT2':20, 'TERRASARX':20, 'TANDEMX':20,
                           'UAVSAR_SLC':20, 'SAOCOM':20, 'GENERIC':20}

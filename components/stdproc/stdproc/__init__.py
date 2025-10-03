@@ -57,7 +57,7 @@ def getFactoriesInfo():
     return  {'FormSLC':
                      {'args':
                            {
-                            'sensor':{'value':['None','uavsar','terrasarx','cosmo_skymed_slc','radarsat2','sentinel1a','tandemx',
+                            'sensor':{'value':['None','uavsar','terrasarx','cosmo_skymed_slc','cosmo_skymed_2gen_slc','radarsat2','sentinel1a','tandemx',
                                                'kompsat5','risat1_slc','alos2','ers_slc','alos_slc','envisat_slc','saocom_slc'],
                                       'type':'str','optional':True,'default':None}
                             },

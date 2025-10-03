@@ -82,6 +82,7 @@ createTanDEMX = partial(factory_template,'TanDEMX')
 createSentinel1 = partial(factory_template,'Sentinel1')
 createGeneric = partial(factory_template,'Generic')
 createCOSMO_SkyMed_SLC = partial(factory_template, 'COSMO_SkyMed_SLC')
+createCOSMO_SkyMed_2gen_SLC = partial(factory_template, 'COSMO_SkyMed_2gen_SLC')
 createROI_PAC = partial(factory_template, 'ROI_PAC')
 createKOMPSAT5 = partial(factory_template, 'KOMPSAT5')
 createRisat1_SLC = partial(factory_template, 'Risat1_SLC')
@@ -106,6 +107,7 @@ SENSORS = {'ALOS' : createALOS,
            'ALOS2' : createALOS2,
            'COSMO_SKYMED' : createCOSMO_SkyMed,
            'COSMO_SKYMED_SLC' : createCOSMO_SkyMed_SLC,
+           'COSMO_SKYMED_2GEN_SLC': createCOSMO_SkyMed_2gen_SLC,
            'ENVISAT' : createEnviSAT,
            'ERS' : createERS,
            'ERS_SLC' : createERS_SLC,

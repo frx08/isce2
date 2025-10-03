@@ -20,7 +20,7 @@ envSensor['SENSOR_SCONS_INSTALL'] = os.path.join(
     envSensor['PRJ_SCONS_INSTALL'], package, project)
 install = envSensor['SENSOR_SCONS_INSTALL']
 
-listFiles = ['ALOS.py','CEOS.py','COSMO_SkyMed.py','COSMO_SkyMed_SLC.py',
+listFiles = ['ALOS.py','CEOS.py','COSMO_SkyMed.py','COSMO_SkyMed_SLC.py','COSMO_SkyMed_2gen_SLC.py',
              'ERS.py','EnviSAT.py','Generic.py','JERS.py','Radarsat1.py',
              'Radarsat2.py','TerraSARX.py','Polarimetry.py','Sensor.py',
              'ROI_PAC.py','Sentinel1.py','TanDEMX.py','KOMPSAT5.py',
